@@ -33,14 +33,44 @@
           programs = {
             deadnix.enable = true;
             nixfmt.enable = true;
+            rustfmt.enable = true;
             statix.enable = true;
           };
         }
       );
     in
     {
+      packages = eachSystem (system: rec {
+        hq = pkgsFor.${system}.rustPlatform.buildRustPackage {
+          pname = "hq";
+          version = "0.1.0";
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./src
+            ];
+          };
+          cargoLock.lockFile = ./Cargo.lock;
+          meta.mainProgram = "hq";
+        };
+        default = hq;
+      });
+
+      devShells = eachSystem (system: {
+        default = pkgsFor.${system}.mkShell {
+          inputsFrom = [ self.packages.${system}.hq ];
+          packages = with pkgsFor.${system}; [
+            clippy
+            rustfmt
+          ];
+        };
+      });
+
       checks = eachSystem (system: {
         formatting = treefmtEval.${system}.config.build.check self;
+        inherit (self.packages.${system}) hq;
       });
 
       formatter = eachSystem (system: treefmtEval.${system}.config.build.wrapper);
