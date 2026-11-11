@@ -1,3 +1,4 @@
+// Installed by hq setup; hq replaces this file when its own copy changes.
 /**
  * Reports each response's prompt-cache state to `hq ingest pi` and shows the
  * time left in the footer. Pi knows the model's cache lifetime; hq owns the rest.
@@ -5,6 +6,9 @@
 
 import { spawn } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+// `hq setup` writes the binary's full path here when `hq` is not on PATH.
+const HQ = "hq";
 
 // The footer shows whole minutes, so a coarser tick would lag by up to that much.
 const TICK_MS = 30_000;
@@ -29,7 +33,7 @@ export default function (pi: ExtensionAPI) {
     if (usage === undefined) return;
     // Mirrors pi's own choice of retention tier for the request it just sent.
     const tier = process.env.PI_CACHE_RETENTION === "long" ? "long" : "short";
-    const child = spawn("hq", ["ingest", "pi"], { stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(HQ, ["ingest", "pi"], { stdio: ["pipe", "pipe", "ignore"] });
     let out = "";
     child.stdout.on("data", (chunk) => (out += chunk));
     // hq is optional: without it pi works as before and the footer stays empty.

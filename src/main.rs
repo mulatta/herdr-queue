@@ -1,10 +1,11 @@
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hq::claude::{self, Status};
 use hq::codex::{self, Hook, Rollout};
 use hq::pi::{self, Turn};
+use hq::setup::{self, Agent, Found};
 use hq::snapshot::{Snapshot, Store, valid_terminal};
 use hq::{events, list};
 
@@ -13,7 +14,10 @@ const USAGE: &str = "usage:
                      record Claude Code's status line JSON from stdin, then run command on it
   hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
   hq ingest pi       record the pi extension's turn JSON from stdin, print the cache expiry
-  hq list [--json]   show every agent session's cache and usage state";
+  hq list [--json]   show every agent session's cache and usage state
+  hq setup [claude|codex|pi] [--remove] [--yes]
+                     connect hq to the agents on PATH, or to the one named
+  hq doctor          check that each agent is connected and reporting";
 
 fn now() -> i64 {
     let secs = SystemTime::now()
@@ -138,6 +142,97 @@ fn list_sessions(json: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn run_setup(args: &[&str]) -> Result<(), String> {
+    let (mut remove, mut assume_yes, mut named) = (false, false, None);
+    for arg in args {
+        match *arg {
+            "--remove" => remove = true,
+            "--yes" => assume_yes = true,
+            name => {
+                named = Some(
+                    Agent::parse(name).ok_or_else(|| format!("unknown agent or option: {name}"))?,
+                );
+            }
+        }
+    }
+    let agents: Vec<Agent> = match named {
+        Some(agent) => vec![agent],
+        None => Agent::ALL
+            .into_iter()
+            .filter(|a| setup::on_path(a.name()).is_some())
+            .collect(),
+    };
+    if agents.is_empty() {
+        return Err("none of claude, codex or pi is on PATH".into());
+    }
+
+    // One agent's broken config should not stop the others from being set up.
+    let mut failed = false;
+    let mut changes = Vec::new();
+    for agent in agents {
+        let change = Found::inspect(agent).and_then(|found| {
+            if remove {
+                found.remove()
+            } else {
+                found.install()
+            }
+        });
+        match change {
+            Ok(change) => changes.extend(change),
+            Err(e) => {
+                failed = true;
+                eprintln!("{:<7} skipped: {e}", agent.name());
+            }
+        }
+    }
+    if changes.is_empty() {
+        println!("nothing to do");
+    }
+    let stdin = std::io::stdin();
+    let interactive = stdin.is_terminal();
+    for change in setup::confirm(
+        changes,
+        assume_yes,
+        interactive,
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+    )? {
+        match setup::apply(&change) {
+            Ok(()) => {
+                let note = if change.agent == Agent::Codex && !remove {
+                    "; approve the hook with /hooks in Codex"
+                } else {
+                    ""
+                };
+                println!("{:<7} done{note}", change.agent.name());
+            }
+            Err(e) => {
+                failed = true;
+                eprintln!(
+                    "{:<7} failed: {}: {e}",
+                    change.agent.name(),
+                    change.path.display()
+                );
+            }
+        }
+    }
+    if failed {
+        Err("some agents were not changed".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn run_doctor() -> ExitCode {
+    let (report, healthy) = setup::doctor(now());
+    print!("{report}");
+    if healthy {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -147,6 +242,8 @@ fn main() -> ExitCode {
         ["ingest", "pi"] => ingest_pi(),
         ["list"] => list_sessions(false),
         ["list", "--json"] => list_sessions(true),
+        ["setup", rest @ ..] => run_setup(rest),
+        ["doctor"] => return run_doctor(),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);

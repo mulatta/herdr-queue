@@ -55,10 +55,8 @@
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
-          # Pi loads extensions from a path, so the file ships beside the binary.
-          postInstall = ''
-            install -Dm644 integrations/pi/hq.ts $out/share/hq/pi/hq.ts
-          '';
+          # For configs that link the files in declaratively instead of running `hq setup`.
+          passthru.integrations.pi = ./integrations/pi/hq.ts;
           meta.mainProgram = "hq";
         };
         default = hq;
