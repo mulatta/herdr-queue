@@ -7,6 +7,7 @@ that herdr mods and other tools can read a single shape.
 ```
 hq ingest claude [-- command...]
                    record Claude Code's status line JSON from stdin, then run command on it
+hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
 hq list [--json]   show every agent session's cache and usage state
 ```
 
@@ -19,6 +20,10 @@ misses that Claude Code reports are appended to `events.jsonl` beside them.
 | Agent | Cache expiry | Usage windows |
 | --- | --- | --- |
 | Claude Code | exact, from the status line input | from the status line input |
+| Codex | estimated: last request + 5 minutes | from the rollout file |
+
+An estimated expiry is the earliest the cache can lapse, and is marked
+`"certainty": "estimated"` in the snapshot.
 
 ### Claude Code
 
@@ -33,3 +38,14 @@ misses that Claude Code reports are appended to `events.jsonl` beside them.
 `hq` draws no status line of its own. Claude Code runs a single status
 line command, so the one that draws goes after `--` and gets the same
 input; leave it out to record only.
+
+### Codex
+
+`~/.codex/config.toml`, then approve the hook with `/hooks`:
+
+```toml
+[[hooks.PostModelRequest]]
+[[hooks.PostModelRequest.hooks]]
+type = "command"
+command = "hq ingest codex"
+```

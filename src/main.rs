@@ -3,12 +3,14 @@ use std::process::{Command, ExitCode, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hq::claude::{self, Status};
+use hq::codex::{self, Hook, Rollout};
 use hq::snapshot::{Snapshot, Store, valid_terminal};
 use hq::{events, list};
 
 const USAGE: &str = "usage:
   hq ingest claude [-- command...]
                      record Claude Code's status line JSON from stdin, then run command on it
+  hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
   hq list [--json]   show every agent session's cache and usage state";
 
 fn now() -> i64 {
@@ -89,6 +91,19 @@ fn ingest_claude(rest: &[&str]) -> Result<(), String> {
     recorded
 }
 
+fn ingest_codex() -> Result<(), String> {
+    let hook = Hook::parse(&stdin()?).map_err(|e| format!("hook input: {e}"))?;
+    let Some((store, terminal)) = home() else {
+        return Ok(());
+    };
+    let prev = store.read(&terminal);
+    let rollout = hook.transcript_path.as_deref().and_then(Rollout::read);
+    match codex::snapshot(&hook, &terminal, now(), prev.as_ref(), rollout.as_ref()) {
+        Some(next) => record(&store, prev.as_ref(), &next),
+        None => Ok(()),
+    }
+}
+
 fn list_sessions(json: bool) -> Result<(), String> {
     let snaps = Store::default_dir()
         .map(|d| Store::new(d).all())
@@ -109,6 +124,7 @@ fn main() -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {
         ["ingest", "claude", rest @ ..] => ingest_claude(rest),
+        ["ingest", "codex"] => ingest_codex(),
         ["list"] => list_sessions(false),
         ["list", "--json"] => list_sessions(true),
         _ => {

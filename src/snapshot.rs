@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub const VERSION: u32 = 1;
+/// The shortest cache lifetime any supported provider documents, for agents that report none.
+pub const FALLBACK_TTL_SECS: i64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
