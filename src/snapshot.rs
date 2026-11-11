@@ -37,6 +37,7 @@ pub struct Cache {
     pub misses: Option<u64>,
     pub miss_recache_tokens: Option<u64>,
     pub last_miss_at: Option<i64>,
+    /// The causes the agent named, joined with `+`.
     pub last_miss_cause: Option<String>,
 }
 
@@ -95,6 +96,11 @@ impl Store {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
         Some(state.join("herdr-queue"))
+    }
+
+    #[must_use]
+    pub fn events_path(&self) -> PathBuf {
+        self.dir.join("events.jsonl")
     }
 
     fn sessions(&self) -> PathBuf {
