@@ -1,4 +1,4 @@
-//! The per-turn report a pi extension pipes in.
+//! The per-turn report the bundled pi extension (`integrations/pi/hq.ts`) pipes in.
 
 use serde::Deserialize;
 

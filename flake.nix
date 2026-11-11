@@ -49,11 +49,16 @@
             fileset = lib.fileset.unions [
               ./Cargo.toml
               ./Cargo.lock
+              ./integrations
               ./src
               ./tests
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
+          # Pi loads extensions from a path, so the file ships beside the binary.
+          postInstall = ''
+            install -Dm644 integrations/pi/hq.ts $out/share/hq/pi/hq.ts
+          '';
           meta.mainProgram = "hq";
         };
         default = hq;

@@ -51,3 +51,13 @@ input; leave it out to record only.
 type = "command"
 command = "hq ingest codex"
 ```
+
+### pi
+
+Load the extension shipped with the package:
+
+```sh
+ln -s "$(dirname "$(readlink -f "$(command -v hq)")")/../share/hq/pi/hq.ts" ~/.pi/agent/extensions/hq.ts
+```
+
+It adds the cache countdown to the footer's extension statuses.
