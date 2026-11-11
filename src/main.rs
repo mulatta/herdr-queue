@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use hq::claude::{self, Status};
 use hq::codex::{self, Hook, Rollout};
+use hq::pi::{self, Turn};
 use hq::snapshot::{Snapshot, Store, valid_terminal};
 use hq::{events, list};
 
@@ -11,6 +12,7 @@ const USAGE: &str = "usage:
   hq ingest claude [-- command...]
                      record Claude Code's status line JSON from stdin, then run command on it
   hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
+  hq ingest pi       record the pi extension's turn JSON from stdin, print the cache expiry
   hq list [--json]   show every agent session's cache and usage state";
 
 fn now() -> i64 {
@@ -104,6 +106,23 @@ fn ingest_codex() -> Result<(), String> {
     }
 }
 
+fn ingest_pi() -> Result<(), String> {
+    let turn = Turn::parse(&stdin()?).map_err(|e| format!("turn input: {e}"))?;
+    let home = home();
+    let prev = home
+        .as_ref()
+        .and_then(|(store, terminal)| store.read(terminal));
+    let terminal = home.as_ref().map_or("", |(_, terminal)| terminal);
+    let next = pi::snapshot(&turn, terminal, now(), prev.as_ref());
+    // The extension shows this in pi's footer; an empty line means no known expiry.
+    let expiry = next.cache.as_ref().and_then(|c| c.expires_at);
+    println!("{}", expiry.map(|at| at.to_string()).unwrap_or_default());
+    match home {
+        Some((store, _)) => record(&store, prev.as_ref(), &next),
+        None => Ok(()),
+    }
+}
+
 fn list_sessions(json: bool) -> Result<(), String> {
     let snaps = Store::default_dir()
         .map(|d| Store::new(d).all())
@@ -125,6 +144,7 @@ fn main() -> ExitCode {
     let result = match args.as_slice() {
         ["ingest", "claude", rest @ ..] => ingest_claude(rest),
         ["ingest", "codex"] => ingest_codex(),
+        ["ingest", "pi"] => ingest_pi(),
         ["list"] => list_sessions(false),
         ["list", "--json"] => list_sessions(true),
         _ => {

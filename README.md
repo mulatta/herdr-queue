@@ -8,6 +8,7 @@ that herdr mods and other tools can read a single shape.
 hq ingest claude [-- command...]
                    record Claude Code's status line JSON from stdin, then run command on it
 hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
+hq ingest pi       record the pi extension's turn JSON from stdin, print the cache expiry
 hq list [--json]   show every agent session's cache and usage state
 ```
 
@@ -21,6 +22,7 @@ misses that Claude Code reports are appended to `events.jsonl` beside them.
 | --- | --- | --- |
 | Claude Code | exact, from the status line input | from the status line input |
 | Codex | estimated: last request + 5 minutes | from the rollout file |
+| pi | estimated: last cached request + the model's lifetime, 5 minutes if it declares none | none |
 
 An estimated expiry is the earliest the cache can lapse, and is marked
 `"certainty": "estimated"` in the snapshot.

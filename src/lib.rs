@@ -3,4 +3,5 @@ pub mod codex;
 pub mod events;
 pub mod fmt;
 pub mod list;
+pub mod pi;
 pub mod snapshot;
