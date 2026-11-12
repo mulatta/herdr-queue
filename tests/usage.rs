@@ -8,10 +8,8 @@ use hq::account::{self, Account};
 use hq::snapshot::{Limit, Snapshot, Store, VERSION};
 use serde_json::Value;
 
-const CLAUDE_USAGE: &str = include_str!("fixtures/claude-usage.txt");
+const CLAUDE_USAGE: &str = include_str!("fixtures/claude-get-usage.json");
 const CODEX_LIMITS: &str = include_str!("fixtures/codex-rate-limits.json");
-/// 2026-11-12 04:00:00 UTC, the morning the fixture was captured.
-const CAPTURED: i64 = 1_794_456_000;
 
 /// Kind, scope, window minutes, used percent, reset.
 type Window<'a> = (&'a str, Option<&'a str>, Option<u32>, f64, Option<i64>);
@@ -32,61 +30,43 @@ fn windows(limits: &[Limit]) -> Vec<Window<'_>> {
 }
 
 #[test]
-fn claude_usage_text_gives_session_week_and_model_windows() {
-    let limits = account::claude_limits(CLAUDE_USAGE, CAPTURED).unwrap();
+fn claude_reply_gives_session_week_and_model_windows() {
+    let reply: Value = serde_json::from_str(CLAUDE_USAGE).unwrap();
+    let (limits, plan) = account::claude_limits(&reply).unwrap();
     assert_eq!(
         windows(&limits),
         [
-            ("five_hour", None, Some(300), 20.0, Some(1_794_476_400)),
-            ("seven_day", None, Some(10080), 10.0, Some(1_794_996_000)),
+            ("five_hour", None, Some(300), 30.0, Some(1_794_476_400)),
+            ("seven_day", None, Some(10080), 11.0, Some(1_794_996_000)),
             (
                 "seven_day",
                 Some("Fable"),
                 Some(10080),
-                12.0,
+                14.0,
                 Some(1_794_996_000)
             ),
         ]
     );
+    assert_eq!(plan.as_deref(), Some("max"));
 }
 
 #[test]
-fn claude_reset_in_january_read_in_december_is_next_year() {
-    // 2026-12-30 00:00:00 UTC
-    let limits = account::claude_limits(
-        "Current week (all models): 3% used · resets Jan 2 at 7pm (UTC)\n",
-        1_798_588_800,
-    )
-    .unwrap();
-    // 2027-01-02 19:00:00 UTC
-    assert_eq!(limits[0].resets_at, Some(1_798_916_400));
+fn claude_reset_time_with_an_offset_is_converted() {
+    let reply = serde_json::json!({"response": {"response": {"rate_limits": {"limits": [
+        {"kind": "session", "percent": 5, "resets_at": "2026-11-12T18:40:00+09:00"},
+        {"kind": "weekly_all", "percent": 6, "resets_at": "2026-11-18T10:00:00Z"},
+        {"kind": "weekly_scoped", "percent": 7, "resets_at": null},
+    ]}}}});
+    let (limits, _) = account::claude_limits(&reply).unwrap();
+    let resets: Vec<_> = limits.iter().map(|l| l.resets_at).collect();
+    assert_eq!(resets, [Some(1_794_476_400), Some(1_794_996_000), None]);
 }
 
 #[test]
-fn claude_reset_without_a_date_is_the_next_time_the_clock_shows_it() {
-    let limits =
-        account::claude_limits("Current session: 5% used · resets 3:05am (UTC)\n", CAPTURED)
-            .unwrap();
-    // 03:05 has passed at 04:00, so it is tomorrow's.
-    assert_eq!(limits[0].resets_at, Some(CAPTURED - 3600 + 300 + 86400));
-}
-
-#[test]
-fn claude_reset_in_another_zone_is_unknown_rather_than_wrong() {
-    let limits = account::claude_limits(
-        "Current session: 19% used · resets Nov 12 at 6:40pm (Asia/Seoul)\n",
-        CAPTURED,
-    )
-    .unwrap();
-    assert_eq!(
-        windows(&limits),
-        [("five_hour", None, Some(300), 19.0, None)]
-    );
-}
-
-#[test]
-fn claude_output_without_usage_lines_is_an_error() {
-    assert!(account::claude_limits("Please run /login\n", CAPTURED).is_err());
+fn claude_reply_without_windows_is_an_error() {
+    let reply = serde_json::json!({"response": {"subtype": "error", "error": "not logged in"}});
+    let error = account::claude_limits(&reply).unwrap_err();
+    assert!(error.contains("not logged in"));
 }
 
 #[test]
@@ -114,7 +94,7 @@ fn agents(dir: &Path) {
     program(
         dir,
         "claude",
-        &format!("[ \"$TZ\" = UTC ] || exit 1\n{PRINT} <<'EOF'\n{CLAUDE_USAGE}EOF\n"),
+        &format!("read -r _\n{PRINT} <<'EOF'\n{CLAUDE_USAGE}EOF\n"),
     );
     program(
         dir,
@@ -145,7 +125,8 @@ fn refresh_asks_each_agent_and_keeps_account_ids_out() {
     let claude = by_agent("claude");
     assert_eq!(claude["source"], "account");
     assert_eq!(claude["limits"][2]["scope"], "Fable");
-    assert_eq!(claude["limits"][2]["usedPct"], 12.0);
+    assert_eq!(claude["limits"][2]["usedPct"], 14.0);
+    assert_eq!(claude["plan"], "max");
 
     let codex = by_agent("codex");
     assert_eq!(codex["source"], "account");
@@ -197,7 +178,11 @@ fn terminal_snapshot(agent: &str, updated_at: i64) -> Snapshot {
 fn failed_refresh_falls_back_to_what_a_terminal_reported() {
     let state = temp_dir("usage-fallback");
     let bin = temp_dir("usage-fallback-bin");
-    program(&bin, "claude", "echo 'Please run /login'\n");
+    program(
+        &bin,
+        "claude",
+        "echo '{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"error\":\"not logged in\"}}'\n",
+    );
     let store = Store::new(state.join("herdr-queue"));
     store
         .write(&terminal_snapshot("claude", now() - 30))
@@ -207,7 +192,7 @@ fn failed_refresh_falls_back_to_what_a_terminal_reported() {
     let claude = got.iter().find(|a| a["agent"] == "claude").unwrap();
     assert_eq!(claude["source"], "terminal");
     assert_eq!(claude["limits"][0]["usedPct"], 41.0);
-    assert!(claude["error"].as_str().unwrap().contains("no usage"));
+    assert!(claude["error"].as_str().unwrap().contains("not logged in"));
 }
 
 #[test]

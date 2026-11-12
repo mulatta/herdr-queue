@@ -42,7 +42,7 @@ own program instead, so `hq` never reads or renews a token:
 
 | Agent | Asked with | Gives |
 | --- | --- | --- |
-| Claude Code | `claude -p /usage` | session and weekly windows, and each model's weekly window |
+| Claude Code | `claude -p`, control request `get_usage` | session and weekly windows, each model's weekly window, and the plan |
 | Codex | `codex app-server`, `account/rateLimits/read` | its windows and the plan |
 
 Answers are kept in `$XDG_STATE_HOME/herdr-queue/accounts/<agent>.json`. An
@@ -56,9 +56,9 @@ answer is more than half an hour old and a terminal has reported since, it
 shows what that terminal's session last saw instead and names the source as
 `terminal`. Those reports have no per-model windows.
 
-Claude Code prints its answer for people. `hq` reads only the lines shaped
-like `Current <window>: N% used · resets <time>` and runs it with `TZ=UTC`,
-since the text has no year and no offset.
+Neither question starts a turn or spends quota. Claude Code runs in safe
+mode without session persistence, so it loads no hooks or MCP servers and
+leaves no session file behind.
 
 ## Setup
 
