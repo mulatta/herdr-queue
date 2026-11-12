@@ -166,6 +166,7 @@ impl Status {
                 };
                 Some(Limit {
                     kind: kind.clone(),
+                    scope: None,
                     window_minutes,
                     used_pct: w.used_percentage,
                     resets_at: w.resets_at,

@@ -81,6 +81,7 @@ impl Rollout {
                 let w: Slot = serde_json::from_value(payload["rate_limits"][slot].clone()).ok()?;
                 Some(Limit {
                     kind: (*slot).into(),
+                    scope: None,
                     window_minutes: w.window_minutes,
                     used_pct: w.used_percent,
                     resets_at: w.resets_at,

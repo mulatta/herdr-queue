@@ -34,6 +34,24 @@ pub fn run(state: &Path, terminal: Option<&str>, args: &[&str], stdin: &str) -> 
     String::from_utf8(out.stdout).unwrap()
 }
 
+/// Like `run`, without stdin and with extra environment, for commands that start other programs.
+pub fn run_env(state: &Path, env: &[(&str, &str)], args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_hq"))
+        .args(args)
+        .env("XDG_STATE_HOME", state)
+        .env_remove("HC_TERMINAL_ID")
+        .envs(env.iter().copied())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
 pub fn now() -> i64 {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

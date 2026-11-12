@@ -26,12 +26,14 @@ fn snapshot(terminal: &str, expires_at: i64) -> Snapshot {
         limits: vec![
             Limit {
                 kind: "five_hour".into(),
+                scope: None,
                 window_minutes: Some(300),
                 used_pct: 17.0,
                 resets_at: Some(now() + 3600),
             },
             Limit {
                 kind: "seven_day".into(),
+                scope: None,
                 window_minutes: Some(10080),
                 used_pct: 31.0,
                 resets_at: Some(now() - 1),

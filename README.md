@@ -9,6 +9,9 @@ hq setup [claude|codex|pi] [--remove] [--yes]
                    connect hq to the agents on PATH, or to the one named
 hq doctor          check that each agent is connected and reporting
 hq list [--json]   show every agent session's cache and usage state
+hq usage [--refresh] [--json]
+                   show each account's usage against its rate limits; --refresh asks
+                   claude and codex first
 
 hq ingest claude [-- command...]
                    record Claude Code's status line JSON from stdin, then run command on it
@@ -30,6 +33,32 @@ misses that Claude Code reports are appended to `events.jsonl` beside them.
 
 An estimated expiry is the earliest the cache can lapse, and is marked
 `"certainty": "estimated"` in the snapshot.
+
+## Account usage
+
+Rate limits belong to an account, not to a terminal, and a session only
+learns them when it makes a request. `hq usage --refresh` asks each agent's
+own program instead, so `hq` never reads or renews a token:
+
+| Agent | Asked with | Gives |
+| --- | --- | --- |
+| Claude Code | `claude -p /usage` | session and weekly windows, and each model's weekly window |
+| Codex | `codex app-server`, `account/rateLimits/read` | its windows and the plan |
+
+Answers are kept in `$XDG_STATE_HOME/herdr-queue/accounts/<agent>.json`. An
+agent is asked at most once every five minutes, and less often after each
+failure, because both programs answer from an endpoint that throttles hard.
+A caller that wants fresh numbers runs `hq usage --refresh` on a timer; ten
+minutes is plenty.
+
+`hq usage` shows the answer while it is recent. When asking fails, or the
+answer is more than half an hour old and a terminal has reported since, it
+shows what that terminal's session last saw instead and names the source as
+`terminal`. Those reports have no per-model windows.
+
+Claude Code prints its answer for people. `hq` reads only the lines shaped
+like `Current <window>: N% used · resets <time>` and runs it with `TZ=UTC`,
+since the text has no year and no offset.
 
 ## Setup
 

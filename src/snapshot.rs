@@ -2,9 +2,11 @@
 
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use crate::account::Account;
 
 pub const VERSION: u32 = 1;
 /// The shortest cache lifetime any supported provider documents, for agents that report none.
@@ -55,6 +57,9 @@ pub enum Certainty {
 #[serde(rename_all = "camelCase")]
 pub struct Limit {
     pub kind: String,
+    /// What the window is limited to when it is not the whole account, such as one model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Agents name their windows differently; the length is the common key.
     pub window_minutes: Option<u32>,
     pub used_pct: f64,
@@ -118,12 +123,27 @@ impl Store {
     /// # Errors
     /// Fails when the state directory cannot be written.
     pub fn write(&self, snap: &Snapshot) -> io::Result<()> {
-        let dir = self.sessions();
-        fs::create_dir_all(&dir)?;
-        // Readers poll this file; a rename never shows them half of it.
-        let tmp = dir.join(format!(".{}.{}.tmp", snap.terminal, std::process::id()));
-        fs::write(&tmp, serde_json::to_vec(snap)?)?;
-        fs::rename(tmp, dir.join(format!("{}.json", snap.terminal)))
+        replace(&self.sessions(), &snap.terminal, &serde_json::to_vec(snap)?)
+    }
+
+    fn accounts(&self) -> PathBuf {
+        self.dir.join("accounts")
+    }
+
+    #[must_use]
+    pub fn read_account(&self, agent: &str) -> Option<Account> {
+        let text = fs::read_to_string(self.accounts().join(format!("{agent}.json"))).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// # Errors
+    /// Fails when the state directory cannot be written.
+    pub fn write_account(&self, account: &Account) -> io::Result<()> {
+        replace(
+            &self.accounts(),
+            &account.agent,
+            &serde_json::to_vec(account)?,
+        )
     }
 
     #[must_use]
@@ -139,6 +159,14 @@ impl Store {
         out.sort_by(|a, b| a.terminal.cmp(&b.terminal));
         out
     }
+}
+
+fn replace(dir: &Path, name: &str, contents: &[u8]) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    // Readers poll this file; a rename never shows them half of it.
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    fs::write(&tmp, contents)?;
+    fs::rename(tmp, dir.join(format!("{name}.json")))
 }
 
 /// Terminal ids become file names, so anything path-like is refused.

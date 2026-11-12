@@ -7,7 +7,7 @@ use hq::codex::{self, Hook, Rollout};
 use hq::pi::{self, Turn};
 use hq::setup::{self, Agent, Found};
 use hq::snapshot::{Snapshot, Store, valid_terminal};
-use hq::{events, list};
+use hq::{account, events, list, usage};
 
 const USAGE: &str = "usage:
   hq ingest claude [-- command...]
@@ -15,6 +15,9 @@ const USAGE: &str = "usage:
   hq ingest codex    record Codex's PostModelRequest hook JSON from stdin
   hq ingest pi       record the pi extension's turn JSON from stdin, print the cache expiry
   hq list [--json]   show every agent session's cache and usage state
+  hq usage [--refresh] [--json]
+                     show each account's usage against its rate limits; --refresh asks
+                     claude and codex first
   hq setup [claude|codex|pi] [--remove] [--yes]
                      connect hq to the agents on PATH, or to the one named
   hq doctor          check that each agent is connected and reporting";
@@ -142,6 +145,43 @@ fn list_sessions(json: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn show_usage(args: &[&str]) -> Result<(), String> {
+    let (mut refresh, mut json) = (false, false);
+    for arg in args {
+        match *arg {
+            "--refresh" => refresh = true,
+            "--json" => json = true,
+            other => return Err(format!("unknown option: {other}")),
+        }
+    }
+    let store = Store::new(Store::default_dir().ok_or("no home directory for state")?);
+    if refresh {
+        // Each program takes seconds to start, so they are asked side by side.
+        std::thread::scope(|scope| {
+            for agent in account::AGENTS {
+                if setup::on_path(agent).is_some() {
+                    let store = &store;
+                    scope.spawn(move || {
+                        if let Err(e) = account::refresh(store, agent, now()) {
+                            eprintln!("hq: {agent}: {e}");
+                        }
+                    });
+                }
+            }
+        });
+    }
+    let all = usage::resolve(&store, now());
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&all).map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", usage::table(&all, now()));
+    }
+    Ok(())
+}
+
 fn run_setup(args: &[&str]) -> Result<(), String> {
     let (mut remove, mut assume_yes, mut named) = (false, false, None);
     for arg in args {
@@ -242,6 +282,7 @@ fn main() -> ExitCode {
         ["ingest", "pi"] => ingest_pi(),
         ["list"] => list_sessions(false),
         ["list", "--json"] => list_sessions(true),
+        ["usage", rest @ ..] => show_usage(rest),
         ["setup", rest @ ..] => run_setup(rest),
         ["doctor"] => return run_doctor(),
         _ => {
